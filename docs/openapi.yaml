@@ -1,0 +1,775 @@
+openapi: 3.0.3
+
+info:
+  title: JR Finance — Peso/Dólar API
+  description: >
+    Personal finance API for managing accounts, fixed monthly expenses, and
+    income/expense transactions in COP and USD.
+
+    All endpoints require an API key issued by `djangorestframework-api-key`.
+    Pass it in every request as `Authorization: Api-Key <key>`.
+
+    Error responses always carry a machine-readable `code` (e.g. `F01`, `G03`)
+    alongside a human-readable `message`.
+  version: 1.0.0
+  contact:
+    name: Rigoberto Perez
+    email: jrigoberto17@gmail.com
+
+servers:
+  - url: http://localhost:8000/api/v1
+    description: Local development server
+
+tags:
+  - name: Summary
+    description: Full user financial snapshot for the current month
+  - name: Accounts
+    description: User bank/savings accounts
+  - name: Transactions
+    description: Income and expense transactions
+
+# ---------------------------------------------------------------------------
+# Security schemes
+# ---------------------------------------------------------------------------
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: Authorization
+      description: >
+        Pass the API key prefixed with `Api-Key `.
+        Example: `Authorization: Api-Key abc123xyz`
+
+  # -------------------------------------------------------------------------
+  # Reusable schemas
+  # -------------------------------------------------------------------------
+  schemas:
+
+    # --- Leaf value types ---------------------------------------------------
+
+    Currency:
+      type: string
+      enum: [COP, USD]
+      description: ISO-4217-style currency code used by this system.
+      example: COP
+
+    TransactionType:
+      type: string
+      enum: [income, expense]
+      description: Direction of the transaction relative to the account balance.
+      example: income
+
+    CreatedVia:
+      type: string
+      enum: [admin, telegram]
+      description: Channel through which the transaction was registered.
+      default: admin
+      example: admin
+
+    # --- Domain objects -----------------------------------------------------
+
+    UserSummaryUser:
+      type: object
+      description: Minimal user identity fields included in the summary response.
+      required: [name, email]
+      properties:
+        name:
+          type: string
+          description: Full name of the user (first + last name).
+          example: "John Doe"
+        email:
+          type: string
+          format: email
+          description: Primary email address of the user.
+          example: "john@example.com"
+
+    Account:
+      type: object
+      description: >
+        A user's bank or savings account. The balance is updated automatically
+        whenever a Transaction is created against this account.
+      required: [id, name, balance, currency, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+          description: Unique identifier (UUID v4).
+          example: "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+        name:
+          type: string
+          maxLength: 100
+          description: Human-friendly account label.
+          example: "Bancolombia Ahorros"
+        balance:
+          type: string
+          format: decimal
+          readOnly: true
+          description: >
+            Current balance. Updated automatically on each transaction.
+            Stored and returned as a decimal string to preserve precision.
+          example: "2500000.00"
+        currency:
+          $ref: "#/components/schemas/Currency"
+        description:
+          type: string
+          nullable: true
+          description: Optional free-text note about the account.
+          example: "Cuenta principal en pesos"
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+          description: ISO 8601 timestamp of record creation (UTC).
+          example: "2026-01-15T10:30:00Z"
+
+    MonthlyExpense:
+      type: object
+      description: >
+        A recurring fixed monthly expense tied to a specific account.
+        The currency is inherited from the linked account and is therefore
+        read-only on this object.
+      required: [id, account, account_name, category, amount, currency, is_active, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+          description: Unique identifier (UUID v4).
+          example: "7cb7e4a2-1234-4abc-9def-000000000001"
+        account:
+          type: string
+          format: uuid
+          description: UUID of the account this expense is charged to.
+          example: "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+        account_name:
+          type: string
+          readOnly: true
+          description: Denormalized name of the linked account.
+          example: "Bancolombia Ahorros"
+        category:
+          type: string
+          maxLength: 100
+          description: Expense category label (e.g. "Arriendo", "Netflix").
+          example: "Arriendo"
+        amount:
+          type: string
+          format: decimal
+          description: Fixed amount charged each month.
+          example: "1200000.00"
+        currency:
+          type: string
+          readOnly: true
+          description: Inherited from the linked account. Always matches account.currency.
+          example: "COP"
+        description:
+          type: string
+          nullable: true
+          description: Optional note about this expense.
+          example: "Pago mensual apartamento"
+        is_active:
+          type: boolean
+          description: Whether this expense is currently included in monthly summaries.
+          example: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+          description: ISO 8601 timestamp of record creation (UTC).
+          example: "2026-01-01T08:00:00Z"
+
+    Transaction:
+      type: object
+      description: >
+        A single income or expense event. Creating a transaction automatically
+        adjusts the linked account's balance (income adds, expense subtracts).
+      required:
+        - id
+        - account
+        - account_name
+        - type
+        - amount
+        - currency
+        - category
+        - date
+        - created_via
+        - created_at
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+          description: Unique identifier (UUID v4).
+          example: "9ab1c2d3-4567-89ef-ab01-234567890abc"
+        account:
+          type: string
+          format: uuid
+          description: UUID of the account this transaction belongs to.
+          example: "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+        account_name:
+          type: string
+          readOnly: true
+          description: Denormalized name of the linked account.
+          example: "Bancolombia Ahorros"
+        type:
+          $ref: "#/components/schemas/TransactionType"
+        amount:
+          type: string
+          format: decimal
+          description: Transaction amount (always positive; type determines direction).
+          example: "500000.00"
+        currency:
+          $ref: "#/components/schemas/Currency"
+          readOnly: true
+          description: >
+            Currency of the transaction. Inherited from the linked account
+            at creation time and stored on the transaction record.
+        category:
+          type: string
+          maxLength: 100
+          description: Category label. Empty string if not provided.
+          example: "Salario"
+        description:
+          type: string
+          nullable: true
+          description: Optional free-text note.
+          example: "Pago quincena"
+        date:
+          type: string
+          format: date
+          description: Accounting date of the transaction (YYYY-MM-DD).
+          example: "2026-05-01"
+        created_via:
+          $ref: "#/components/schemas/CreatedVia"
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+          description: ISO 8601 timestamp of record creation (UTC).
+          example: "2026-05-01T14:23:00Z"
+
+    CurrencySummary:
+      type: object
+      description: >
+        Aggregated financial figures for a single currency within the current
+        calendar month. Savings = income - expenses - fixed_expenses.
+        savings_target = 35% of income.
+      required: [income, expenses, fixed_expenses, savings, savings_target]
+      properties:
+        income:
+          type: string
+          format: decimal
+          description: Sum of all income transactions for the month.
+          example: "5000000.00"
+        expenses:
+          type: string
+          format: decimal
+          description: Sum of all expense transactions for the month.
+          example: "1500000.00"
+        fixed_expenses:
+          type: string
+          format: decimal
+          description: Sum of active MonthlyExpenses charged to accounts of this currency.
+          example: "1200000.00"
+        savings:
+          type: string
+          format: decimal
+          description: income - expenses - fixed_expenses.
+          example: "2300000.00"
+        savings_target:
+          type: string
+          format: decimal
+          description: Target savings = 35% of income.
+          example: "1750000.00"
+
+    MonthlySummary:
+      type: object
+      description: >
+        Monthly financial summary broken down by currency.
+        Only currencies with at least one account are included.
+      properties:
+        COP:
+          $ref: "#/components/schemas/CurrencySummary"
+        USD:
+          $ref: "#/components/schemas/CurrencySummary"
+
+    UserSummaryResponse:
+      type: object
+      description: Full financial snapshot for the authenticated profile owner.
+      required: [user, accounts, monthly_expenses, monthly_summary]
+      properties:
+        user:
+          $ref: "#/components/schemas/UserSummaryUser"
+        accounts:
+          type: array
+          items:
+            $ref: "#/components/schemas/Account"
+          description: All accounts belonging to the user.
+        monthly_expenses:
+          type: array
+          items:
+            $ref: "#/components/schemas/MonthlyExpense"
+          description: All active fixed monthly expenses for the user.
+        monthly_summary:
+          $ref: "#/components/schemas/MonthlySummary"
+
+    PaginatedTransactionResponse:
+      type: object
+      description: >
+        Standard DRF PageNumberPagination envelope.
+        Default page size is 20. Use `?page=N` to navigate.
+      required: [count, results]
+      properties:
+        count:
+          type: integer
+          description: Total number of transactions matching the query.
+          example: 42
+        next:
+          type: string
+          format: uri
+          nullable: true
+          description: URL to the next page, or null on the last page.
+          example: "http://localhost:8000/api/v1/profiles/3fa85f64-5717-4562-b3fc-2c963f66afa6/transactions/?page=3"
+        previous:
+          type: string
+          format: uri
+          nullable: true
+          description: URL to the previous page, or null on the first page.
+          example: "http://localhost:8000/api/v1/profiles/3fa85f64-5717-4562-b3fc-2c963f66afa6/transactions/?page=1"
+        results:
+          type: array
+          items:
+            $ref: "#/components/schemas/Transaction"
+
+    TransactionCreateRequest:
+      type: object
+      description: Payload for creating a new transaction.
+      required: [account_id, type, amount, date]
+      properties:
+        account_id:
+          type: string
+          format: uuid
+          description: UUID of the account to debit or credit.
+          example: "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+        type:
+          $ref: "#/components/schemas/TransactionType"
+        amount:
+          type: string
+          format: decimal
+          description: Positive decimal amount. Maximum 13 integer digits, 2 decimal places.
+          example: "150000.00"
+        category:
+          type: string
+          maxLength: 100
+          description: Category label. Defaults to empty string if omitted.
+          default: ""
+          example: "Alimentacion"
+        description:
+          type: string
+          description: Optional free-text note.
+          default: ""
+          example: "Mercado semanal"
+        date:
+          type: string
+          format: date
+          description: Accounting date of the transaction (YYYY-MM-DD).
+          example: "2026-05-04"
+        created_via:
+          $ref: "#/components/schemas/CreatedVia"
+
+    # --- Error shapes -------------------------------------------------------
+
+    ErrorResponse:
+      type: object
+      description: >
+        Standard error envelope used for all 4xx and 5xx responses.
+        `code` is a machine-readable error code (prefix G = general, F = finance).
+        `message` is a human-readable explanation.
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          description: >
+            Error code.
+            General codes: G00 (500), G01 (404), G02 (400), G03 (401), G04 (403).
+            Finance codes: F01 (profile not found), F02 (account not found),
+            F03 (transaction not found), F04 (monthly expense not found),
+            F05 (account does not belong to user).
+          example: "F01"
+        message:
+          type: string
+          description: Human-readable description of the error.
+          example: "Perfil de usuario no encontrado"
+
+    ValidationErrorResponse:
+      type: object
+      description: >
+        Returned when request data fails DRF serializer validation (HTTP 400).
+        Field-level errors are keyed by the field name; non-field errors appear
+        under the `non_field_errors` key. Each value is an array of message strings.
+      example:
+        amount: ["A valid number is required."]
+        type: ["\"foo\" is not a valid choice."]
+
+  # -------------------------------------------------------------------------
+  # Reusable parameters
+  # -------------------------------------------------------------------------
+  parameters:
+    ProfileId:
+      name: profile_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+      description: UUID of the UserProfile resource.
+      example: "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+
+    PageParam:
+      name: page
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+      description: Page number for paginated results (1-indexed).
+      example: 2
+
+  # -------------------------------------------------------------------------
+  # Reusable responses
+  # -------------------------------------------------------------------------
+  responses:
+    Unauthorized:
+      description: >
+        API key is missing or invalid.
+        Ensure the `Authorization: Api-Key <key>` header is present and correct.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            code: "G03"
+            message: "Unauthorized"
+
+    Forbidden:
+      description: >
+        The API key does not have permission to access this resource.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            code: "G04"
+            message: "Forbidden"
+
+    NotFound:
+      description: >
+        The requested resource does not exist. Check the `code` field for the
+        specific resource that was not found (F01 = profile, F02 = account,
+        F03 = transaction, F04 = monthly expense).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          examples:
+            profileNotFound:
+              summary: Profile not found
+              value:
+                code: "F01"
+                message: "Perfil de usuario no encontrado"
+            accountNotFound:
+              summary: Account not found
+              value:
+                code: "F02"
+                message: "Cuenta no encontrada"
+
+    InternalError:
+      description: Unexpected server error. Stack traces are never exposed.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            code: "G00"
+            message: "An unexpected error occurred"
+
+# ---------------------------------------------------------------------------
+# Paths
+# ---------------------------------------------------------------------------
+security:
+  - ApiKeyAuth: []
+
+paths:
+
+  # --------------------------------------------------------------------------
+  # Summary
+  # --------------------------------------------------------------------------
+  /profiles/{profile_id}/summary/:
+    get:
+      operationId: getUserSummary
+      summary: Get full financial summary for a profile
+      description: >
+        Returns the user's identity, all their accounts, all active fixed monthly
+        expenses, and an aggregated month-to-date summary separated by currency
+        (COP and USD).
+
+        The monthly summary is always calculated for the current calendar month
+        on the server's local date. Savings target is fixed at 35% of income.
+      tags: [Summary]
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - $ref: "#/components/parameters/ProfileId"
+      responses:
+        "200":
+          description: Full financial snapshot returned successfully.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserSummaryResponse"
+              example:
+                user:
+                  name: "John Doe"
+                  email: "john@example.com"
+                accounts:
+                  - id: "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+                    name: "Bancolombia Ahorros"
+                    balance: "2500000.00"
+                    currency: "COP"
+                    description: "Cuenta principal"
+                    created_at: "2026-01-01T00:00:00Z"
+                monthly_expenses:
+                  - id: "7cb7e4a2-1234-4abc-9def-000000000001"
+                    account: "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+                    account_name: "Bancolombia Ahorros"
+                    category: "Arriendo"
+                    amount: "1200000.00"
+                    currency: "COP"
+                    description: "Pago mensual apartamento"
+                    is_active: true
+                    created_at: "2026-01-01T08:00:00Z"
+                monthly_summary:
+                  COP:
+                    income: "5000000.00"
+                    expenses: "1500000.00"
+                    fixed_expenses: "1200000.00"
+                    savings: "2300000.00"
+                    savings_target: "1750000.00"
+                  USD:
+                    income: "1000.00"
+                    expenses: "150.00"
+                    fixed_expenses: "50.00"
+                    savings: "800.00"
+                    savings_target: "350.00"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  # --------------------------------------------------------------------------
+  # Accounts
+  # --------------------------------------------------------------------------
+  /profiles/{profile_id}/accounts/:
+    get:
+      operationId: listAccounts
+      summary: List all accounts for a profile
+      description: >
+        Returns every account owned by the user identified by `profile_id`.
+        Results are not paginated — a single user is not expected to have a
+        large number of accounts.
+      tags: [Accounts]
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - $ref: "#/components/parameters/ProfileId"
+      responses:
+        "200":
+          description: Account list returned successfully.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Account"
+              example:
+                - id: "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+                  name: "Bancolombia Ahorros"
+                  balance: "2500000.00"
+                  currency: "COP"
+                  description: "Cuenta principal en pesos"
+                  created_at: "2026-01-01T00:00:00Z"
+                - id: "1ab2c3d4-5678-90ef-ab12-345678901234"
+                  name: "Nubank USD"
+                  balance: "850.50"
+                  currency: "USD"
+                  description: null
+                  created_at: "2026-02-10T12:00:00Z"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  # --------------------------------------------------------------------------
+  # Transactions
+  # --------------------------------------------------------------------------
+  /profiles/{profile_id}/transactions/:
+    get:
+      operationId: listTransactions
+      summary: List paginated transactions for a profile
+      description: >
+        Returns a paginated list of all transactions for the user identified by
+        `profile_id`, ordered by date descending, then by creation time
+        descending. Default page size is 20. Use the `page` query parameter to
+        navigate pages.
+      tags: [Transactions]
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - $ref: "#/components/parameters/ProfileId"
+        - $ref: "#/components/parameters/PageParam"
+      responses:
+        "200":
+          description: Paginated transaction list returned successfully.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaginatedTransactionResponse"
+              example:
+                count: 42
+                next: "http://localhost:8000/api/v1/profiles/3fa85f64-5717-4562-b3fc-2c963f66afa6/transactions/?page=3"
+                previous: "http://localhost:8000/api/v1/profiles/3fa85f64-5717-4562-b3fc-2c963f66afa6/transactions/?page=1"
+                results:
+                  - id: "9ab1c2d3-4567-89ef-ab01-234567890abc"
+                    account: "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+                    account_name: "Bancolombia Ahorros"
+                    type: "income"
+                    amount: "5000000.00"
+                    currency: "COP"
+                    category: "Salario"
+                    description: "Pago quincena"
+                    date: "2026-05-01"
+                    created_via: "admin"
+                    created_at: "2026-05-01T14:23:00Z"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+    post:
+      operationId: createTransaction
+      summary: Create a new transaction for a profile
+      description: >
+        Records a new income or expense transaction against an account that
+        belongs to the user identified by `profile_id`.
+
+        Side effects performed atomically:
+        - A `Transaction` record is created.
+        - `account.balance` is updated: income adds the amount, expense subtracts it.
+
+        The `currency` of the resulting transaction is inherited from the linked
+        account and is not accepted as input.
+      tags: [Transactions]
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - $ref: "#/components/parameters/ProfileId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TransactionCreateRequest"
+            examples:
+              incomeExample:
+                summary: Register a salary income in COP
+                value:
+                  account_id: "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+                  type: "income"
+                  amount: "5000000.00"
+                  category: "Salario"
+                  description: "Pago quincena mayo"
+                  date: "2026-05-04"
+                  created_via: "admin"
+              expenseExample:
+                summary: Register a grocery expense via Telegram
+                value:
+                  account_id: "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+                  type: "expense"
+                  amount: "85000.00"
+                  category: "Alimentacion"
+                  description: "Mercado semanal"
+                  date: "2026-05-04"
+                  created_via: "telegram"
+              minimalExample:
+                summary: Minimal required fields only
+                value:
+                  account_id: "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+                  type: "expense"
+                  amount: "20000.00"
+                  date: "2026-05-04"
+      responses:
+        "201":
+          description: Transaction created and account balance updated successfully.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Transaction"
+              example:
+                id: "9ab1c2d3-4567-89ef-ab01-234567890abc"
+                account: "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+                account_name: "Bancolombia Ahorros"
+                type: "income"
+                amount: "5000000.00"
+                currency: "COP"
+                category: "Salario"
+                description: "Pago quincena mayo"
+                date: "2026-05-04"
+                created_via: "admin"
+                created_at: "2026-05-04T10:00:00Z"
+        "400":
+          description: >
+            Validation failed. The response body is a map where keys are field
+            names and values are arrays of error message strings. Non-field
+            errors appear under `non_field_errors`.
+
+            Also returned with code `F05` when `account_id` is valid but the
+            account does not belong to the profile's user.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/ValidationErrorResponse"
+                  - $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                validationError:
+                  summary: Serializer validation failure
+                  value:
+                    amount: ["A valid number is required."]
+                    type: ["\"foo\" is not a valid choice."]
+                wrongAccount:
+                  summary: Account does not belong to user
+                  value:
+                    code: "F05"
+                    message: "La cuenta no pertenece al usuario"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"

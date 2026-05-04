@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(make*)",
+      "Bash(docker compose*)",
+      "Bash(python manage.py*)"
+    ]
+  }
+}

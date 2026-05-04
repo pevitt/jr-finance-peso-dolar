@@ -1,0 +1,108 @@
+{% extends "admin/base_site.html" %}
+{% load i18n log %}
+
+{% block coltype %}flex{% endblock %}
+{% block bodyclass %}{{ block.super }} dashboard{% endblock %}
+{% block nav-breadcrumbs %}{% endblock nav-breadcrumbs %}
+
+{% block content %}
+{% if balance_summary %}
+<div style="background:var(--darkened-bg);border:1px solid var(--border-color);border-radius:4px;margin-bottom:24px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.08);">
+  <div style="background:#417690;padding:10px 18px;">
+    <span style="color:#fff;font-size:.85em;font-weight:600;text-transform:uppercase;letter-spacing:.05em;">Balance por usuario</span>
+  </div>
+  <table style="width:100%;border-collapse:collapse;">
+    <thead>
+      <tr style="background:var(--darkened-bg);border-bottom:1px solid var(--border-color);">
+        <th style="padding:10px 18px;text-align:left;font-size:.82em;color:var(--body-quiet-color);font-weight:600;">Usuario</th>
+        <th style="padding:10px 18px;text-align:right;font-size:.82em;color:var(--body-quiet-color);font-weight:600;">Total COP</th>
+        <th style="padding:10px 18px;text-align:right;font-size:.82em;color:var(--body-quiet-color);font-weight:600;">Total USD</th>
+        <th style="padding:10px 18px;text-align:right;font-size:.82em;color:var(--body-quiet-color);font-weight:600;">Tasa</th>
+        <th style="padding:10px 18px;text-align:center;font-size:.82em;color:var(--body-quiet-color);font-weight:600;"></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in balance_summary %}
+      <tr style="border-bottom:1px solid var(--border-color);">
+        <td style="padding:12px 18px;font-weight:500;color:var(--body-fg);">{{ row.display_name }}</td>
+        <td style="padding:12px 18px;text-align:right;font-family:monospace;color:var(--body-fg);">${{ row.total_cop }}</td>
+        <td style="padding:12px 18px;text-align:right;font-family:monospace;color:var(--body-fg);">${{ row.total_usd }}</td>
+        <td style="padding:12px 18px;text-align:right;font-size:.82em;color:var(--body-quiet-color);">${{ row.rate }}</td>
+        <td style="padding:12px 18px;text-align:center;">
+          <a href="{% url 'admin:finance_account_changelist' %}?user__id__exact={{ row.user_id }}" style="color:var(--link-fg);font-size:.82em;">Ver cuentas →</a>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+<div id="content-main">
+{% if app_list %}
+  {% for app in app_list %}
+  <div class="app-{{ app.app_label }} module">
+    <table>
+      <caption>
+        <a href="{{ app.app_url }}" class="section">{{ app.name }}</a>
+      </caption>
+      {% for model in app.models %}
+      <tr class="model-{{ model.object_name|lower }}">
+        {% if model.admin_url %}
+        <th scope="row"><a href="{{ model.admin_url }}">{{ model.name }}</a></th>
+        {% else %}
+        <th scope="row">{{ model.name }}</th>
+        {% endif %}
+        <td>
+          {% if model.add_url %}
+          <a href="{{ model.add_url }}" class="addlink">{% trans 'Add' %}</a>
+          {% endif %}
+        </td>
+        <td>
+          {% if model.admin_url %}
+          {% if model.view_only %}
+          <a href="{{ model.admin_url }}" class="viewlink">{% trans 'View' %}</a>
+          {% else %}
+          <a href="{{ model.admin_url }}" class="changelink">{% trans 'Change' %}</a>
+          {% endif %}
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </table>
+  </div>
+  {% endfor %}
+{% else %}
+  <p>{% trans "You don't have permission to view or edit anything." %}</p>
+{% endif %}
+</div>
+{% endblock %}
+
+{% block sidebar %}
+<div id="content-related">
+  <div class="module" id="recent-actions-module">
+    <h2>{% trans 'Recent actions' %}</h2>
+    <h3>{% trans 'My actions' %}</h3>
+    {% get_admin_log 10 as admin_log for_user user %}
+    {% if not admin_log %}
+    <p>{% trans 'None available' %}</p>
+    {% else %}
+    <ul class="actionlist">
+      {% for entry in admin_log %}
+      <li class="{% if entry.is_addition %}addlink{% endif %}{% if entry.is_change %}changelink{% endif %}{% if entry.is_deletion %}deletelink{% endif %}">
+        {% if entry.is_deletion or not entry.get_admin_url %}
+          {{ entry.object_repr }}
+        {% else %}
+          <a href="{{ entry.get_admin_url }}">{{ entry.object_repr }}</a>
+        {% endif %}
+        <br>
+        <span class="mini quiet">
+          {% if entry.content_type %}{{ entry.content_type|capfirst }}{% else %}{% trans 'Unknown content' %}{% endif %}
+        </span>
+      </li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}
