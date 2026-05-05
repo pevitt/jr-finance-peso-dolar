@@ -113,3 +113,98 @@ MAIN_MENU → AMOUNT → ACCOUNT → CATEGORY → [CATEGORY_CUSTOM] → DESCRIPT
 - `MonthlyExpense` no tiene campo `currency` propio — se hereda de `account.currency`.
 - `FinanceSummaryService.get_monthly_summary()` calcula ahorro mínimo del 35% sobre ingresos del mes, separado por moneda (COP/USD).
 - Paginación global: `PageNumberPagination` con `PAGE_SIZE=20`.
+
+## Deployment — Fly.io
+
+### Características del entorno productivo
+
+- **App**: `jr-finance` en Fly.io (región `gru` — São Paulo)
+- **URL**: `https://jr-finance.fly.dev`
+- **Settings**: `config.settings.production` — `DJANGO_SETTINGS_MODULE` seteado como variable de entorno
+- **DB**: SQLite en volumen persistente montado en `/data/db.sqlite3`
+  - Volumen: `jr_finance_data` (1GB, región `gru`, snapshots automáticos cada 5 días)
+  - Sobrevive deploys, reinicios y actualizaciones de la imagen
+- **Procesos**: 2 máquinas separadas en el mismo app
+  - `web` — gunicorn con 2 workers, puerto 8000
+  - `bot` — `python manage.py run_bot` (polling Telegram, siempre activo)
+
+### Secrets configurados
+
+Manejados con `fly secrets set` — nunca van en el repo:
+
+| Secret | Descripción |
+|--------|-------------|
+| `SECRET_KEY` | Django secret key |
+| `ALLOWED_HOSTS` | `jr-finance.fly.dev` |
+| `TELEGRAM_BOT_TOKEN` | Token del bot de Telegram |
+
+### Arquitectura en producción
+
+Un solo VM corre ambos procesos vía `entrypoint.sh`:
+1. `python manage.py migrate` — aplica migraciones al arrancar
+2. `python manage.py run_bot &` — bot Telegram en background
+3. `gunicorn` — web server en primer plano
+
+El volumen `/data` está montado en esta única máquina. `auto_stop_machines = false` y `min_machines_running = 1` para que el bot esté siempre activo.
+
+### Flujo de redeploy (tras cambios en el código)
+
+```bash
+fly auth docker
+docker buildx build --platform linux/amd64 --push -t registry.fly.io/jr-finance:latest .
+fly deploy --image registry.fly.io/jr-finance:latest
+```
+
+### Comandos de operación
+
+```bash
+fly logs                          # logs en tiempo real
+fly ssh console                   # shell dentro del contenedor
+fly machine list                  # ver máquinas y estado del volumen
+fly machine restart               # reiniciar la máquina
+fly secrets set KEY="valor"       # agregar/actualizar secret
+fly secrets list                  # ver secrets configurados
+fly status                        # estado general de la app
+```
+
+### Subir la base de datos local a producción
+
+Si la DB en `/data/db.sqlite3` ya existe, hay que borrarla primero:
+
+```bash
+fly ssh console -C "rm /data/db.sqlite3"
+fly sftp shell
+> put db.sqlite3 /data/db.sqlite3
+> exit
+fly machine restart
+```
+
+### Primer deploy / setup inicial
+
+```bash
+# 1. Instalar flyctl
+brew install flyctl
+
+# 2. Login
+fly auth login
+
+# 3. Crear app y volumen
+fly apps create jr-finance
+fly volumes create jr_finance_data --region gru --size 1
+
+# 4. Configurar secrets
+fly secrets set SECRET_KEY="..."
+fly secrets set ALLOWED_HOSTS="jr-finance.fly.dev"
+fly secrets set TELEGRAM_BOT_TOKEN="..."
+
+# 5. Build y deploy (desde Mac Apple Silicon)
+fly auth docker
+docker buildx build --platform linux/amd64 --push -t registry.fly.io/jr-finance:latest .
+fly deploy --image registry.fly.io/jr-finance:latest
+
+# 6. Subir BD real
+fly ssh console -C "python manage.py migrate"
+
+# 8. Escalar bot
+fly scale count bot=1
+```

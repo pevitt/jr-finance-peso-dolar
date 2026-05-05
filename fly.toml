@@ -1,0 +1,23 @@
+app = "jr-finance"
+primary_region = "gru"
+
+[build]
+
+[env]
+  DJANGO_SETTINGS_MODULE = "config.settings.production"
+
+[mounts]
+  source = "jr_finance_data"
+  destination = "/data"
+
+[http_service]
+  internal_port = 8000
+  force_https = true
+  auto_stop_machines = false
+  auto_start_machines = true
+  min_machines_running = 1
+
+[[vm]]
+  memory = "512mb"
+  cpu_kind = "shared"
+  cpus = 1
