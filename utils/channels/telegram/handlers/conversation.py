@@ -1,3 +1,5 @@
+import asyncio
+import datetime
 import functools
 import logging
 from decimal import Decimal, InvalidOperation
@@ -77,6 +79,44 @@ def _fmt(val: Decimal, currency: str) -> str:
     return _fmt_cop(val) if currency == "COP" else _fmt_usd(val)
 
 
+def _detailed_summary_lines(summary: dict, month_name: str, rate: Decimal) -> list[str]:
+    lines = [f"\n*── {month_name} {summary['year']} ──*\n"]
+    has_data = False
+    for currency in ("COP", "USD"):
+        income = summary["income"][currency]
+        fixed = summary["fixed_expenses"][currency]
+        expenses = summary["expenses"][currency]
+        target = summary["savings_target"][currency]
+        savings = summary["actual_savings"][currency]
+        if income == 0 and fixed == 0:
+            continue
+        has_data = True
+        icon = "✅" if savings >= target else "⚠️"
+        pct = f"{(savings / income * 100):.0f}%" if income else "—"
+        lines.append(f"*{currency}*")
+        diff = fixed - expenses
+        diff_icon = "✅" if diff >= 0 else "⚠️"
+        diff_label = f"Restante: {_fmt(diff, currency)}" if diff >= 0 else f"Excedido: {_fmt(abs(diff), currency)}"
+        lines.append(f"📥 Ingresos: {_fmt(income, currency)}")
+        lines.append(f"📌 Gastos fijos: {_fmt(fixed, currency)}")
+        lines.append(f"📤 Egresos totales: {_fmt(expenses, currency)}")
+        lines.append(f"{diff_icon} {diff_label}")
+        lines.append(f"{icon} Ahorro: {_fmt(savings, currency)} ({pct}) — mínimo {_fmt(target, currency)}\n")
+
+    if not has_data:
+        lines.append("Sin datos registrados.")
+        return lines
+
+    total_savings_cop = summary["actual_savings"]["COP"] + summary["actual_savings"]["USD"] * rate
+    total_income_cop = summary["income"]["COP"] + summary["income"]["USD"] * rate
+    if total_income_cop > 0:
+        total_pct = f"{(total_savings_cop / total_income_cop * 100):.0f}%"
+        icon = "✅" if total_savings_cop >= total_income_cop * Decimal("0.35") else "⚠️"
+        lines.append(f"*Total consolidado*")
+        lines.append(f"{icon} Ahorro: ~{_fmt_cop(total_savings_cop)} ({total_pct})")
+    return lines
+
+
 # ── Entry point ───────────────────────────────────────────────────────────────
 
 @require_auth
@@ -122,8 +162,9 @@ async def handle_balance(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     await query.answer()
 
     profile = context.user_data["profile"]
-    accounts = await sync_to_async(get_user_accounts)(profile.user)
     rate = profile.usd_to_cop_rate
+
+    accounts = await sync_to_async(get_user_accounts)(profile.user)
 
     if not accounts:
         await query.edit_message_text("📊 No tenés cuentas registradas.", reply_markup=main_menu_keyboard())
@@ -131,7 +172,7 @@ async def handle_balance(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     total_cop = Decimal("0")
     total_usd = Decimal("0")
-    lines = [f"📊 *Tu balance actual:*\n_(1 USD = {_fmt_cop(rate)})_\n"]
+    lines = [f"📊 *Balance actual*\n_(1 USD = {_fmt_cop(rate)})_\n"]
 
     for acc in accounts:
         if acc.currency == "COP":
@@ -157,38 +198,22 @@ async def handle_summary(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     await query.answer()
 
     profile = context.user_data["profile"]
-    summary = await sync_to_async(get_monthly_summary)(profile.user)
     rate = profile.usd_to_cop_rate
 
-    month_name = MONTH_NAMES[summary["month"]]
-    lines = [f"📅 *Resumen {month_name} {summary['year']}:*\n_(1 USD = {_fmt_cop(rate)})_\n"]
+    today = datetime.date.today()
+    prev_year, prev_month = (today.year - 1, 12) if today.month == 1 else (today.year, today.month - 1)
 
-    for currency in ("COP", "USD"):
-        income = summary["income"][currency]
-        fixed = summary["fixed_expenses"][currency]
-        expenses = summary["expenses"][currency]
-        target = summary["savings_target"][currency]
-        savings = summary["actual_savings"][currency]
+    summary_cur, summary_prev = await asyncio.gather(
+        sync_to_async(get_monthly_summary)(profile.user),
+        sync_to_async(get_monthly_summary)(profile.user, prev_year, prev_month),
+    )
 
-        if income == 0 and fixed == 0:
-            continue
+    cur_month_name = MONTH_NAMES[summary_cur["month"]]
+    prev_month_name = MONTH_NAMES[summary_prev["month"]]
 
-        icon = "✅" if savings >= target else "⚠️"
-        pct = f"{(savings / income * 100):.0f}%" if income else "—"
-        lines.append(f"*── {currency} ──*")
-        lines.append(f"📥 Ingresos: {_fmt(income, currency)}")
-        lines.append(f"📌 Gastos fijos: {_fmt(fixed, currency)}")
-        lines.append(f"📤 Egresos totales: {_fmt(expenses, currency)}")
-        lines.append(f"{icon} Ahorro: {_fmt(savings, currency)} ({pct}) — mínimo {_fmt(target, currency)}\n")
-
-    # Totales consolidados
-    total_savings_cop = summary["actual_savings"]["COP"] + summary["actual_savings"]["USD"] * rate
-    total_income_cop = summary["income"]["COP"] + summary["income"]["USD"] * rate
-    if total_income_cop > 0:
-        total_pct = f"{(total_savings_cop / total_income_cop * 100):.0f}%"
-        icon = "✅" if total_savings_cop >= total_income_cop * Decimal("0.35") else "⚠️"
-        lines.append(f"*── Total consolidado ──*")
-        lines.append(f"{icon} Ahorro total: ~{_fmt_cop(total_savings_cop)} ({total_pct})")
+    lines = [f"📅 *Resumen mensual*\n_(1 USD = {_fmt_cop(rate)})_"]
+    lines.extend(_detailed_summary_lines(summary_cur, cur_month_name, rate))
+    lines.extend(_detailed_summary_lines(summary_prev, prev_month_name, rate))
 
     await query.edit_message_text(
         "\n".join(lines), parse_mode="Markdown", reply_markup=main_menu_keyboard()

@@ -42,9 +42,9 @@ def create_transaction(
     )
 
 
-def get_monthly_summary(user: User) -> dict:
+def get_monthly_summary(user: User, year: int = None, month: int = None) -> dict:
     today = datetime.date.today()
-    return FinanceSummaryService.get_monthly_summary(user, today.year, today.month)
+    return FinanceSummaryService.get_monthly_summary(user, year or today.year, month or today.month)
 
 
 def update_exchange_rate(profile, rate) -> None:
