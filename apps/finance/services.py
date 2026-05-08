@@ -1,3 +1,4 @@
+import datetime
 from decimal import Decimal
 from typing import Any, Dict, List, Optional
 from uuid import UUID
@@ -8,7 +9,7 @@ from django.db import models
 from utils.services.base_service import BaseService
 
 from .exceptions import FinanceErrorCode, FinanceException
-from .models import Account, MonthlyExpense, Transaction, UserProfile
+from .models import Account, MonthlyExpense, Transaction, TransactionType, UserProfile
 from .selectors import AccountSelector, MonthlyExpenseSelector, TransactionSelector, UserProfileSelector
 
 _ZERO = Decimal("0")
@@ -125,6 +126,40 @@ class TransactionService(BaseService):
     def get_by_filters(cls, **filters) -> List[Transaction]:
         return TransactionSelector.filter(**filters)
 
+    @classmethod
+    def create_transfer(cls, user: User, from_account_id: UUID, to_account_id: UUID, amount: Decimal, rate: Decimal) -> Decimal:
+        from_account = AccountService.get_user_account(user, from_account_id)
+        to_account = AccountService.get_user_account(user, to_account_id)
+
+        if from_account.currency == to_account.currency:
+            converted_amount = amount
+        elif from_account.currency == "COP" and to_account.currency == "USD":
+            converted_amount = (amount / rate).quantize(Decimal("0.01"))
+        else:
+            converted_amount = (amount * rate).quantize(Decimal("0.01"))
+
+        today = datetime.date.today()
+
+        TransactionSelector.create(
+            user=user, account=from_account,
+            type=TransactionType.TRANSFER, amount=amount,
+            currency=from_account.currency, category="Transferencia",
+            description=f"→ {to_account.name}", date=today, created_via="telegram",
+        )
+        from_account.balance -= amount
+        from_account.save()
+
+        TransactionSelector.create(
+            user=user, account=to_account,
+            type=TransactionType.TRANSFER, amount=converted_amount,
+            currency=to_account.currency, category="Transferencia",
+            description=f"← {from_account.name}", date=today, created_via="telegram",
+        )
+        to_account.balance += converted_amount
+        to_account.save()
+
+        return converted_amount
+
 
 class MonthlyExpenseService(BaseService):
 
@@ -161,7 +196,10 @@ class FinanceSummaryService:
 
     @classmethod
     def get_monthly_summary(cls, user: User, year: int, month: int) -> Dict:
-        transactions = list(TransactionSelector.get_monthly_transactions(user, year, month))
+        transactions = [
+            t for t in TransactionSelector.get_monthly_transactions(user, year, month)
+            if t.type != TransactionType.TRANSFER
+        ]
         fixed_expenses = list(MonthlyExpenseSelector.get_user_active_expenses(user))
 
         income_cop = sum((t.amount for t in transactions if t.type == "income" and t.currency == "COP"), _ZERO)

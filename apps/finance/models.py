@@ -12,6 +12,7 @@ class Currency(models.TextChoices):
 class TransactionType(models.TextChoices):
     INCOME = "income", "Ingreso"
     EXPENSE = "expense", "Egreso"
+    TRANSFER = "transfer", "Transferencia"
 
 
 class CreatedVia(models.TextChoices):

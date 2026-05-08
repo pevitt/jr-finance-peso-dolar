@@ -10,6 +10,9 @@ def main_menu_keyboard() -> InlineKeyboardMarkup:
             InlineKeyboardButton("💸 Agregar egreso", callback_data="add_expense"),
         ],
         [
+            InlineKeyboardButton("🔄 Mover dinero", callback_data="transfer"),
+        ],
+        [
             InlineKeyboardButton("📊 Ver balance", callback_data="balance"),
             InlineKeyboardButton("📅 Resumen del mes", callback_data="summary"),
         ],
@@ -23,13 +26,20 @@ def cancel_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancelar", callback_data="cancel")]])
 
 
-def accounts_keyboard(accounts) -> InlineKeyboardMarkup:
+def accounts_keyboard(accounts, prefix: str = "account") -> InlineKeyboardMarkup:
     buttons = [
-        [InlineKeyboardButton(f"🏦 {acc.name} ({acc.currency})", callback_data=f"account:{acc.id}")]
+        [InlineKeyboardButton(f"🏦 {acc.name} ({acc.currency})", callback_data=f"{prefix}:{acc.id}")]
         for acc in accounts
     ]
     buttons.append([InlineKeyboardButton("❌ Cancelar", callback_data="cancel")])
     return InlineKeyboardMarkup(buttons)
+
+
+def confirm_transfer_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([[
+        InlineKeyboardButton("✅ Confirmar", callback_data="transfer_confirm"),
+        InlineKeyboardButton("❌ Cancelar", callback_data="cancel"),
+    ]])
 
 
 def categories_keyboard(categories: List[str]) -> InlineKeyboardMarkup:

@@ -6,6 +6,8 @@ from django.contrib.auth.models import User
 
 from apps.finance.models import Account, UserProfile
 from apps.finance.services import FinanceSummaryService, TransactionService
+from decimal import Decimal
+from uuid import UUID
 
 
 def get_profile_by_chat_id(chat_id: str) -> UserProfile | None:
@@ -48,3 +50,13 @@ def get_monthly_summary(user: User) -> dict:
 def update_exchange_rate(profile, rate) -> None:
     profile.usd_to_cop_rate = rate
     profile.save(update_fields=["usd_to_cop_rate"])
+
+
+def create_transfer(user, from_account_id: UUID, to_account_id: UUID, amount: Decimal, rate: Decimal) -> Decimal:
+    return TransactionService.create_transfer(
+        user=user,
+        from_account_id=from_account_id,
+        to_account_id=to_account_id,
+        amount=amount,
+        rate=rate,
+    )
