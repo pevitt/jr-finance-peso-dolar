@@ -19,13 +19,18 @@ class UserSummaryView(APIView):
         profile = UserProfileService.get_by_id(profile_id)
         user = profile.user
         today = datetime.date.today()
+        try:
+            year = int(request.query_params.get("year", today.year))
+            month = int(request.query_params.get("month", today.month))
+        except ValueError:
+            year, month = today.year, today.month
         return Response({
             "user": {"name": user.get_full_name(), "email": user.email},
             "accounts": AccountSerializer(AccountSelector.get_user_accounts(user), many=True).data,
             "monthly_expenses": MonthlyExpenseSerializer(
                 MonthlyExpenseSelector.get_user_active_expenses(user), many=True
             ).data,
-            "monthly_summary": FinanceSummaryService.get_monthly_summary(user, today.year, today.month),
+            "monthly_summary": FinanceSummaryService.get_monthly_summary(user, year, month),
         })
 
 
