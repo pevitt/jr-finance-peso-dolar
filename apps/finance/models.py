@@ -18,6 +18,7 @@ class TransactionType(models.TextChoices):
 class CreatedVia(models.TextChoices):
     ADMIN = "admin", "Admin"
     TELEGRAM = "telegram", "Telegram"
+    CLAUDE = "claude", "Claude"
 
 
 class UserProfile(BaseModelUUID):
