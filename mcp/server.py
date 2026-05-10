@@ -83,6 +83,41 @@ async def get_transactions(page: int = 1) -> dict:
 
 
 @mcp.tool()
+async def create_transaction(
+    account_id: str,
+    type: str,
+    amount: float,
+    date: str,
+    category: str = "",
+    description: str = "",
+) -> dict:
+    """
+    Crea una transacción y actualiza el saldo de la cuenta.
+    - type: "income" (ingreso) o "expense" (egreso)
+    - amount: monto positivo
+    - date: formato YYYY-MM-DD
+    - account_id: UUID de la cuenta (obtener con get_accounts)
+    """
+    payload = {
+        "account_id": account_id,
+        "type": type,
+        "amount": amount,
+        "date": date,
+        "category": category,
+        "description": description,
+        "created_via": "claude",
+    }
+    async with httpx.AsyncClient(timeout=15) as client:
+        r = await client.post(
+            f"{FINANCE_BASE_URL}/api/v1/profiles/{PROFILE_ID}/transactions/",
+            headers=_auth_headers(),
+            json=payload,
+        )
+        r.raise_for_status()
+        return r.json()
+
+
+@mcp.tool()
 async def get_exchange_rate() -> dict:
     """
     Retorna la tasa de cambio actual USD/COP y contexto del mercado de divisas.

@@ -49,4 +49,4 @@ class TransactionCreateSerializer(serializers.Serializer):
     category = serializers.CharField(max_length=100, required=False, allow_blank=True)
     description = serializers.CharField(required=False, allow_blank=True)
     date = serializers.DateField()
-    created_via = serializers.ChoiceField(choices=["admin", "telegram"], required=False, default="admin")
+    created_via = serializers.ChoiceField(choices=["admin", "telegram", "claude"], required=False, default="admin")
