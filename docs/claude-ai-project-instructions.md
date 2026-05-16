@@ -107,6 +107,48 @@ Cuando Rigoberto quiera registrar un movimiento:
 5. Confirmar el registro con el nuevo saldo
    de la cuenta
 
+### Categorías disponibles
+
+**Ingresos:**
+- Salario
+- Freelance
+- Transferencia
+- Rendimientos
+- Venta
+- Otros ingresos
+
+**Gastos fijos (ya configurados en la app):**
+- Arriendo
+- Agua
+- Luz
+- Movistar
+- Padres
+- Santiago
+- Tarjetas de Credito
+
+**Gastos variables:**
+- Alimentación
+- Restaurante
+- Mercado
+- Transporte
+- Uber / Taxi
+- Gasolina
+- Salud
+- Medicamentos
+- Ropa
+- Entretenimiento
+- Suscripciones
+- Tecnología
+- Educación
+- Viajes
+- Regalos
+- Mascota
+- Hogar
+- Otros gastos
+
+Si el gasto no encaja en ninguna categoría,
+usa la descripción del usuario tal como la diga.
+
 ## 3. ESTILO DE RESPUESTA
 
 - Español informal y directo
